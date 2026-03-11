@@ -7,6 +7,7 @@ import { formatPct, formatCurrency, formatNumber, toShortDate } from "@/lib/form
 import KpiCard from "./KpiCard";
 import MetricList, { type MetricRow } from "./MetricList";
 import CompositionPanel from "./CompositionPanel";
+import VcpReferenceTable from "./VcpReferenceTable";
 
 const LineChartPanel = dynamic(() => import("./LineChartPanel"), { ssr: false });
 
@@ -70,19 +71,15 @@ export default function Dashboard() {
   const classBOverview = classB?.overview ?? null;
 
   const classAPoints = classA?.evolution.points ?? [];
-  const classBPoints = classB?.evolution.points ?? [];
   const totalAumPoints = combinedAum?.points ?? [];
 
   const classALabels = classAPoints.map((p) => toShortDate(p.date));
-  const classBLabels = classBPoints.map((p) => toShortDate(p.date));
   const totalAumLabels = totalAumPoints.map((p) => toShortDate(p.date));
 
   const classAVcpSeries = classAPoints.map((p) => p.vcp);
-  const classBVcpSeries = classBPoints.map((p) => p.vcp);
   const totalAumSeries = totalAumPoints.map((p) => p.aumTotal);
 
   const classARangeLabel = classA ? buildRangeLabel(classA) : "";
-  const classBRangeLabel = classB ? buildRangeLabel(classB) : "";
   const totalAumRangeLabel = combinedAum
     ? `${toShortDate(combinedAum.window.startDate)} - ${toShortDate(combinedAum.window.endDate)} · ${combinedAum.window.points} observaciones`
     : "";
@@ -166,60 +163,34 @@ export default function Dashboard() {
               sub="Suma de ambas clases"
             />
             <KpiCard
-              label="VCP Clase A"
+              label="VCP"
               value={classAOverview ? formatNumber(classAOverview.current.vcpUnitario, 4) : "-"}
               sub="Valor cuotaparte"
             />
             <KpiCard
-              label="VCP Clase B"
-              value={classBOverview ? formatNumber(classBOverview.current.vcpUnitario, 4) : "-"}
-              sub="Valor cuotaparte"
-            />
-            <KpiCard
-              label="Rendimiento Dia A"
+              label="Rendimiento Diario"
               value={classAOverview ? formatPct(classAOverview.returns.day?.returnPct) : "-"}
               sub={classAOverview?.returns.day?.sinceDate ? `Desde ${classAOverview.returns.day.sinceDate}` : "-"}
               colorClass={returnColor(classAOverview?.returns.day?.returnPct)}
             />
             <KpiCard
-              label="Rendimiento Dia B"
-              value={classBOverview ? formatPct(classBOverview.returns.day?.returnPct) : "-"}
-              sub={classBOverview?.returns.day?.sinceDate ? `Desde ${classBOverview.returns.day.sinceDate}` : "-"}
-              colorClass={returnColor(classBOverview?.returns.day?.returnPct)}
-            />
-            <KpiCard
-              label="Rendimiento Inicio A"
+              label="Rendimiento Desde Inicio"
               value={classA?.inceptionStats ? formatPct(classA.inceptionStats.sinceInceptionReturnPct) : "..."}
               sub="Desde inicio de la clase"
               colorClass={returnColor(classA?.inceptionStats?.sinceInceptionReturnPct)}
-            />
-            <KpiCard
-              label="Rendimiento Inicio B"
-              value={classB?.inceptionStats ? formatPct(classB.inceptionStats.sinceInceptionReturnPct) : "..."}
-              sub="Desde inicio de la clase"
-              colorClass={returnColor(classB?.inceptionStats?.sinceInceptionReturnPct)}
             />
           </section>
 
           <section className="chart-grid fade-in stagger-2">
             <LineChartPanel
-              title="Evolucion Valor Cuotaparte · Clase A"
+              title="Evolucion Valor Cuotaparte"
               rangeLabel={classARangeLabel}
               labels={classALabels}
               data={classAVcpSeries}
               color="#5f2bd7"
-              seriesLabel="VCP Clase A"
+              seriesLabel="VCP"
             />
             <LineChartPanel
-              title="Evolucion Valor Cuotaparte · Clase B"
-              rangeLabel={classBRangeLabel}
-              labels={classBLabels}
-              data={classBVcpSeries}
-              color="#2146a6"
-              seriesLabel="VCP Clase B"
-            />
-            <LineChartPanel
-              className="panel-full-span"
               title="Evolucion AUM Total (Clase A + Clase B)"
               rangeLabel={totalAumRangeLabel}
               labels={totalAumLabels}
@@ -227,6 +198,14 @@ export default function Dashboard() {
               color="#0f8f5d"
               seriesLabel="AUM Total"
               currency
+            />
+          </section>
+
+          <section className="fade-in stagger-3" style={{ marginTop: 16 }}>
+            <VcpReferenceTable
+              label="Clase A"
+              overview={classAOverview}
+              inceptionStats={classA?.inceptionStats ?? null}
             />
           </section>
         </>

@@ -9,6 +9,7 @@ import type {
   DashboardData,
   DashboardClassesData,
 } from "./types";
+import { readPersistedCache, writePersistedCache } from "./persistent-cache";
 
 // ─── Fund config ──────────────────────────────────────────────────────────────
 
@@ -64,8 +65,29 @@ function cacheSet<T>(key: string, value: T, ttlMs: number): T {
 async function getCached<T>(key: string, ttlMs: number, producer: () => Promise<T>): Promise<T> {
   const fromCache = cacheGet<T>(key);
   if (fromCache !== null) return fromCache;
-  const value = await producer();
-  return cacheSet(key, value, ttlMs);
+
+  const persisted = await readPersistedCache<T>(key);
+  const now = Date.now();
+  if (persisted && persisted.expiresAt > now) {
+    return cacheSet(key, persisted.value, Math.max(1_000, persisted.expiresAt - now));
+  }
+
+  try {
+    const value = await producer();
+    cacheSet(key, value, ttlMs);
+    void writePersistedCache(key, {
+      value,
+      expiresAt: Date.now() + ttlMs,
+      savedAt: Date.now(),
+    });
+    return value;
+  } catch (error) {
+    if (persisted) {
+      // Fallback to stale persisted value if the upstream API is temporarily unavailable.
+      return cacheSet(key, persisted.value, 60_000);
+    }
+    throw error;
+  }
 }
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -241,7 +263,7 @@ export function buildOverviewFromFicha(ficha: any, classId: number): Overview {
 // ─── Daily data — shared raw cache (one API call per date regardless of class) ─
 
 async function getDailyRawRows(tipoRentaId: number, dateIso: string): Promise<unknown[]> {
-  return getCached(`daily-raw:${tipoRentaId}:${dateIso}`, 24 * 60 * 60 * 1000, async () => {
+  return getCached(`daily-raw:${tipoRentaId}:${dateIso}`, 10 * 365 * 24 * 60 * 60 * 1000, async () => {
     const url = `${API_BASE}/estadisticas/informacion/diaria/${tipoRentaId}/${dateIso}`;
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const payload = await fetchJson(url) as any;
