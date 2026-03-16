@@ -10,6 +10,7 @@ import type {
   DashboardClassesData,
 } from "./types";
 import { readPersistedCache, writePersistedCache } from "./persistent-cache";
+import { supabase } from "./supabase";
 
 // ─── Fund config ──────────────────────────────────────────────────────────────
 
@@ -159,11 +160,93 @@ async function fetchJson(url: string, timeoutMs = 20000): Promise<unknown> {
   }
 }
 
+// ─── Supabase readers ─────────────────────────────────────────────────────────
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+async function getFichaFromDb(classId: number): Promise<any | null> {
+  if (!supabase) return null;
+  const { data, error } = await supabase
+    .from("cafci_ficha_snapshot")
+    .select("data")
+    .eq("class_id", classId)
+    .order("fecha", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  if (error || !data) return null;
+  return data.data;
+}
+
+async function getEvolutionPointsFromDb(
+  tipoRentaId: number,
+  className: string,
+  startDateIso: string,
+  endDateIso: string,
+): Promise<EvolutionPoint[]> {
+  if (!supabase) return [];
+  const { data, error } = await supabase
+    .from("cafci_vcp_diario")
+    .select("fecha, vcp, patrimonio, ccp")
+    .eq("tipo_renta_id", tipoRentaId)
+    .eq("fondo_nombre", className)
+    .gte("fecha", startDateIso)
+    .lte("fecha", endDateIso)
+    .order("fecha");
+  if (error || !data) return [];
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  return (data as any[]).map((row) => ({
+    date: String(row.fecha),
+    vcp: row.vcp as number | null,
+    aum: row.patrimonio as number | null,
+    ccp: row.ccp as number | null,
+  }));
+}
+
+async function getCombinedAumPointsFromDb(
+  tipoRentaId: number,
+  classNameA: string,
+  classNameB: string,
+  startDateIso: string,
+  endDateIso: string,
+): Promise<CombinedAumPoint[]> {
+  if (!supabase) return [];
+  const { data, error } = await supabase
+    .from("cafci_vcp_diario")
+    .select("fecha, fondo_nombre, patrimonio")
+    .eq("tipo_renta_id", tipoRentaId)
+    .in("fondo_nombre", [classNameA, classNameB])
+    .gte("fecha", startDateIso)
+    .lte("fecha", endDateIso)
+    .order("fecha");
+  if (error || !data) return [];
+
+  const byDate = new Map<string, { aumA: number | null; aumB: number | null }>();
+  for (const row of data) {
+    const date = String(row.fecha);
+    if (!byDate.has(date)) byDate.set(date, { aumA: null, aumB: null });
+    const entry = byDate.get(date)!;
+    if (row.fondo_nombre === classNameA) entry.aumA = row.patrimonio as number | null;
+    else if (row.fondo_nombre === classNameB) entry.aumB = row.patrimonio as number | null;
+  }
+
+  return Array.from(byDate.entries())
+    .filter(([, v]) => v.aumA !== null || v.aumB !== null)
+    .map(([date, { aumA, aumB }]) => ({
+      date,
+      aumA,
+      aumB,
+      aumTotal: aumA !== null || aumB !== null ? (aumA ?? 0) + (aumB ?? 0) : null,
+    }))
+    .sort((a, b) => a.date.localeCompare(b.date));
+}
+
 // ─── Ficha (per-class) ────────────────────────────────────────────────────────
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 async function getFichaRaw(classId: number): Promise<any> {
   return getCached(`ficha:${classId}`, 5 * 60 * 1000, async () => {
+    const dbFicha = await getFichaFromDb(classId);
+    if (dbFicha) return dbFicha;
+
     const url = `${API_BASE}/fondo/${FUND_ID}/clase/${classId}/ficha`;
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const response = await fetchJson(url) as any;
@@ -384,12 +467,20 @@ async function buildEvolution(daysParam: string, classId: number): Promise<Evolu
   const inceptionDate = ficha.model?.createdAt ? new Date(ficha.model.createdAt) : addDays(currentDate, -365);
   const { startDate, dateList, isAll, days } = buildDateRange(daysParam, currentDate, inceptionDate);
 
-  const pointsRaw = await mapWithConcurrency(dateList, 6, (dateIso) =>
-    getDailyRowForClass(tipoRentaId, className, dateIso),
-  );
+  // Intento 1: lectura bulk desde Supabase (una sola query en vez de N llamadas HTTP)
+  const dbPoints = await getEvolutionPointsFromDb(tipoRentaId, className, toISODate(startDate), toISODate(currentDate));
 
-  const points = (pointsRaw.filter((p) => p && p.vcp !== null) as EvolutionPoint[])
-    .sort((a, b) => a.date.localeCompare(b.date));
+  let points: EvolutionPoint[];
+  if (dbPoints.length > 0) {
+    points = dbPoints.filter((p) => p.vcp !== null).sort((a, b) => a.date.localeCompare(b.date));
+  } else {
+    // Fallback: API de CAFCI fecha por fecha
+    const pointsRaw = await mapWithConcurrency(dateList, 6, (dateIso) =>
+      getDailyRowForClass(tipoRentaId, className, dateIso),
+    );
+    points = (pointsRaw.filter((p) => p && p.vcp !== null) as EvolutionPoint[])
+      .sort((a, b) => a.date.localeCompare(b.date));
+  }
 
   return {
     window: {
@@ -424,18 +515,26 @@ async function buildCombinedAumEvolution(daysParam: string): Promise<CombinedAum
 
   const { startDate, dateList } = buildDateRange(daysParam, currentDate, inceptionDate);
 
-  const pointsRaw = await mapWithConcurrency(dateList, 6, async (dateIso) => {
-    const rows = await getDailyRawRows(tipoRentaId, dateIso);
-    const rowA = findClassRow(rows, classNameA, dateIso);
-    const rowB = findClassRow(rows, classNameB, dateIso);
-    const aumA = rowA?.aum ?? null;
-    const aumB = rowB?.aum ?? null;
-    const aumTotal = aumA !== null || aumB !== null ? (aumA ?? 0) + (aumB ?? 0) : null;
-    return { date: dateIso, aumA, aumB, aumTotal } as CombinedAumPoint;
-  });
+  // Intento 1: lectura bulk desde Supabase
+  const dbPoints = await getCombinedAumPointsFromDb(tipoRentaId, classNameA, classNameB, toISODate(startDate), toISODate(currentDate));
 
-  const points = (pointsRaw.filter((p): p is CombinedAumPoint => p !== null && p.aumTotal !== null))
-    .sort((a, b) => a.date.localeCompare(b.date));
+  let points: CombinedAumPoint[];
+  if (dbPoints.length > 0) {
+    points = dbPoints;
+  } else {
+    // Fallback: API de CAFCI fecha por fecha
+    const pointsRaw = await mapWithConcurrency(dateList, 6, async (dateIso) => {
+      const rows = await getDailyRawRows(tipoRentaId, dateIso);
+      const rowA = findClassRow(rows, classNameA, dateIso);
+      const rowB = findClassRow(rows, classNameB, dateIso);
+      const aumA = rowA?.aum ?? null;
+      const aumB = rowB?.aum ?? null;
+      const aumTotal = aumA !== null || aumB !== null ? (aumA ?? 0) + (aumB ?? 0) : null;
+      return { date: dateIso, aumA, aumB, aumTotal } as CombinedAumPoint;
+    });
+    points = (pointsRaw.filter((p): p is CombinedAumPoint => p !== null && p.aumTotal !== null))
+      .sort((a, b) => a.date.localeCompare(b.date));
+  }
 
   const currentAumA = toNumber(fichaA.info?.diaria?.actual?.patrimonio);
   const currentAumB = toNumber(fichaB.info?.diaria?.actual?.patrimonio);
@@ -489,6 +588,110 @@ export async function getDashboardClassesData(days: string): Promise<DashboardCl
   return {
     classA: { ...classAData, combinedAum },
     classB: { ...classBData, combinedAum },
+    combinedAum,
+  };
+}
+
+export async function getDashboardClassesDataCached(days: string): Promise<DashboardClassesData> {
+  if (!supabase) throw new Error("Supabase no configurado.");
+
+  // ── 1. Overview, fees y portfolio desde el cache pre-computado ──────────────
+  const { data: cacheRow, error: cacheErr } = await supabase
+    .from("cafci_dashboard_cache")
+    .select("data")
+    .eq("cache_key", "classes:all")
+    .maybeSingle();
+
+  if (cacheErr) throw new Error(`Error leyendo cache: ${cacheErr.message}`);
+  if (!cacheRow) throw new Error("Cache vacía. Ejecutá el refresh primero desde /api/fondo/refresh.");
+
+  const cached = cacheRow.data as DashboardClassesData;
+
+  // ── 2. Evolución desde ciclo_nova_diario (cualquier ventana) ────────────────
+  const normalized = String(days).toLowerCase();
+  const isAll = normalized === "all";
+  const daysNum = isAll ? null : Math.max(15, Math.min(900, Number(normalized) || 180));
+  const sinceDate = daysNum
+    ? new Date(Date.now() - daysNum * 24 * 60 * 60 * 1000).toISOString().slice(0, 10)
+    : null;
+
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  function buildQuery(classId: number): any {
+    const q = supabase!
+      .from("ciclo_nova_diario")
+      .select("fecha, vcp, aum, ccp")
+      .eq("class_id", classId)
+      .order("fecha");
+    return sinceDate ? q.gte("fecha", sinceDate) : q;
+  }
+
+  const [{ data: rowsA, error: errA }, { data: rowsB, error: errB }] = await Promise.all([
+    buildQuery(CLASS_A_ID),
+    buildQuery(CLASS_B_ID),
+  ]);
+
+  if (errA) throw new Error(`Error leyendo diario clase A: ${errA.message}`);
+  if (errB) throw new Error(`Error leyendo diario clase B: ${errB.message}`);
+
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const toPoints = (rows: any[]): EvolutionPoint[] =>
+    rows
+      .filter((r) => r.vcp !== null)
+      .map((r) => ({ date: String(r.fecha), vcp: r.vcp, aum: r.aum, ccp: r.ccp }));
+
+  const pointsA = toPoints(rowsA ?? []);
+  const pointsB = toPoints(rowsB ?? []);
+
+  const buildEvolutionObj = (points: EvolutionPoint[], requested: string | number): Evolution => ({
+    window: {
+      requested,
+      startDate: points[0]?.date ?? "",
+      endDate: points[points.length - 1]?.date ?? "",
+      queriedDays: points.length,
+      points: points.length,
+    },
+    stats: computeEvolutionStats(points),
+    points,
+  });
+
+  const evolutionA = buildEvolutionObj(pointsA, isAll ? "all" : daysNum!);
+  const evolutionB = buildEvolutionObj(pointsB, isAll ? "all" : daysNum!);
+
+  // ── 3. Combined AUM desde los puntos de ambas clases ────────────────────────
+  const aumByDate = new Map<string, { aumA: number | null; aumB: number | null }>();
+  for (const p of pointsA) {
+    aumByDate.set(p.date, { aumA: p.aum, aumB: null });
+  }
+  for (const p of pointsB) {
+    const entry = aumByDate.get(p.date) ?? { aumA: null, aumB: null };
+    entry.aumB = p.aum;
+    aumByDate.set(p.date, entry);
+  }
+  const combinedPoints: CombinedAumPoint[] = Array.from(aumByDate.entries())
+    .map(([date, { aumA, aumB }]) => ({
+      date,
+      aumA,
+      aumB,
+      aumTotal: aumA !== null || aumB !== null ? (aumA ?? 0) + (aumB ?? 0) : null,
+    }))
+    .filter((p) => p.aumTotal !== null)
+    .sort((a, b) => a.date.localeCompare(b.date));
+
+  const combinedAum: CombinedAum = {
+    currentAumA: cached.combinedAum.currentAumA,
+    currentAumB: cached.combinedAum.currentAumB,
+    currentTotalAum: cached.combinedAum.currentTotalAum,
+    points: combinedPoints,
+    window: {
+      startDate: combinedPoints[0]?.date ?? "",
+      endDate: combinedPoints[combinedPoints.length - 1]?.date ?? "",
+      points: combinedPoints.length,
+    },
+  };
+
+  return {
+    classA: { overview: cached.classA.overview, evolution: evolutionA, inceptionStats: computeEvolutionStats(pointsA), combinedAum },
+    classB: { overview: cached.classB.overview, evolution: evolutionB, inceptionStats: computeEvolutionStats(pointsB), combinedAum },
     combinedAum,
   };
 }

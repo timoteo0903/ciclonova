@@ -9,12 +9,10 @@ const FETCH_HEADERS = {
   "User-Agent": "ETL-CAFCI/1.0",
 };
 
-// Probamos IDs 1-20; los que no existan devuelven vacío y se ignoran.
-const TIPO_RENTA_IDS = Array.from({ length: 20 }, (_, i) => i + 1);
+const FUND_ID = 1717;
+const FICHA_CLASS_IDS = [5772, 5773];
 
 const BATCH_SIZE = 500;
-
-// Pausa entre fechas para no saturar la API de CAFCI.
 const DELAY_BETWEEN_DATES_MS = 150;
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
@@ -59,6 +57,20 @@ function dateRange(from: string, to: string): string[] {
 // ─── CAFCI fetch ─────────────────────────────────────────────────────────────
 
 // deno-lint-ignore no-explicit-any
+async function fetchFicha(classId: number): Promise<any | null> {
+  const url = `${API_BASE}/fondo/${FUND_ID}/clase/${classId}/ficha`;
+  const res = await fetch(url, {
+    headers: FETCH_HEADERS,
+    signal: AbortSignal.timeout(30_000),
+  });
+  if (!res.ok) return null;
+  // deno-lint-ignore no-explicit-any
+  const body: any = await res.json().catch(() => null);
+  if (body?.error || !body?.data?.model) return null;
+  return body.data;
+}
+
+// deno-lint-ignore no-explicit-any
 async function fetchTipoRentaRows(tipoRentaId: number, dateIso: string): Promise<any[]> {
   const url = `${API_BASE}/estadisticas/informacion/diaria/${tipoRentaId}/${dateIso}`;
   const res = await fetch(url, {
@@ -71,7 +83,7 @@ async function fetchTipoRentaRows(tipoRentaId: number, dateIso: string): Promise
   return Array.isArray(body?.data) ? body.data : [];
 }
 
-// ─── Procesar un día ─────────────────────────────────────────────────────────
+// ─── Tipos ───────────────────────────────────────────────────────────────────
 
 type VcpRecord = {
   fecha: string;
@@ -82,28 +94,36 @@ type VcpRecord = {
   ccp: number | null;
 };
 
-async function processDate(dateIso: string): Promise<VcpRecord[]> {
-  // Los 20 tipoRenta se piden en paralelo para cada fecha.
-  const results = await Promise.allSettled(
-    TIPO_RENTA_IDS.map(async (id) => ({ id, rows: await fetchTipoRentaRows(id, dateIso) })),
-  );
+type FichaRecord = {
+  fecha: string;
+  class_id: number;
+  // deno-lint-ignore no-explicit-any
+  data: any;
+};
 
+// ─── Procesar un día ─────────────────────────────────────────────────────────
+
+async function processDate(
+  dateIso: string,
+  tipoRentaId: number,
+  allowedNames: Set<string>,
+): Promise<VcpRecord[]> {
+  const rows = await fetchTipoRentaRows(tipoRentaId, dateIso);
   const records: VcpRecord[] = [];
-  for (const r of results) {
-    if (r.status !== "fulfilled") continue;
-    for (const row of r.value.rows) {
-      const fondo_nombre = String(row.fondo ?? row.nombre ?? "").trim();
-      if (!fondo_nombre) continue;
-      records.push({
-        fecha: dateIso,
-        tipo_renta_id: r.value.id,
-        fondo_nombre,
-        vcp: toNumber(row.vcp),
-        patrimonio: toNumber(row.patrimonio),
-        ccp: toNumber(row.ccp),
-      });
-    }
+
+  for (const row of rows) {
+    const fondo_nombre = String(row.fondo ?? row.nombre ?? "").trim();
+    if (!fondo_nombre || !allowedNames.has(fondo_nombre)) continue;
+    records.push({
+      fecha: dateIso,
+      tipo_renta_id: tipoRentaId,
+      fondo_nombre,
+      vcp: toNumber(row.vcp),
+      patrimonio: toNumber(row.patrimonio),
+      ccp: toNumber(row.ccp),
+    });
   }
+
   return records;
 }
 
@@ -138,6 +158,33 @@ Deno.serve(async (req) => {
     );
   }
 
+  // ─── Obtener metadatos del fondo ─────────────────────────────────────────
+  // La ficha nos da el tipoRentaId y los nombres exactos de las clases
+  // para filtrar solo las filas que nos interesan.
+
+  const fichas = await Promise.all(FICHA_CLASS_IDS.map(fetchFicha));
+  const fichaValidas = fichas.filter(Boolean);
+
+  if (fichaValidas.length === 0) {
+    return new Response(
+      JSON.stringify({ error: "No se pudo obtener la ficha del fondo. API de CAFCI no disponible." }),
+      { status: 502, headers: { "Content-Type": "application/json" } },
+    );
+  }
+
+  // deno-lint-ignore no-explicit-any
+  const tipoRentaId: number = fichaValidas[0].model?.fondo?.tipoRenta?.id;
+  if (!tipoRentaId) {
+    return new Response(
+      JSON.stringify({ error: "No se pudo determinar el tipoRentaId del fondo." }),
+      { status: 502, headers: { "Content-Type": "application/json" } },
+    );
+  }
+
+  // Nombres exactos de las clases tal como los devuelve la API de estadísticas
+  // deno-lint-ignore no-explicit-any
+  const allowedNames = new Set<string>(fichaValidas.map((f: any) => String(f.model?.nombre ?? "").trim()).filter(Boolean));
+
   const supabase = createClient(
     Deno.env.get("SUPABASE_URL")!,
     Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!,
@@ -149,8 +196,10 @@ Deno.serve(async (req) => {
   let datesEmpty = 0;
   const errors: string[] = [];
 
+  // ─── VCP diario ──────────────────────────────────────────────────────────
+
   for (const dateIso of dates) {
-    const records = await processDate(dateIso);
+    const records = await processDate(dateIso, tipoRentaId, allowedNames);
 
     if (!records.length) {
       datesEmpty++;
@@ -161,14 +210,13 @@ Deno.serve(async (req) => {
     datesWithData++;
     totalRows += records.length;
 
-    // Deduplicar: CAFCI a veces devuelve la misma clave dos veces en el mismo response.
+    // Deduplicar por si CAFCI repite claves en el mismo response
     const deduped = [
       ...new Map(
         records.map((r) => [`${r.fecha}|${r.tipo_renta_id}|${r.fondo_nombre}`, r]),
       ).values(),
     ];
 
-    // Upsert en batches
     for (let i = 0; i < deduped.length; i += BATCH_SIZE) {
       const batch = deduped.slice(i, i + BATCH_SIZE);
       const { error, count } = await supabase
@@ -179,7 +227,7 @@ Deno.serve(async (req) => {
         });
 
       if (error) {
-        errors.push(`${dateIso} batch ${Math.floor(i / BATCH_SIZE) + 1}: ${error.message}`);
+        errors.push(`${dateIso}: ${error.message}`);
       } else {
         totalUpserted += count ?? batch.length;
       }
@@ -188,13 +236,40 @@ Deno.serve(async (req) => {
     if (DELAY_BETWEEN_DATES_MS > 0) await sleep(DELAY_BETWEEN_DATES_MS);
   }
 
+  // ─── Ficha snapshot ───────────────────────────────────────────────────────
+  // Se guarda una vez por corrida con la fecha más reciente del lote.
+
+  const fichaFecha = dates[dates.length - 1];
+  const fichaRecords: FichaRecord[] = FICHA_CLASS_IDS
+    .map((classId, i) => fichas[i] ? { fecha: fichaFecha, class_id: classId, data: fichas[i] } : null)
+    .filter((r): r is FichaRecord => r !== null);
+
+  let fichasUpserted = 0;
+  if (fichaRecords.length > 0) {
+    const { error, count } = await supabase
+      .from("cafci_ficha_snapshot")
+      .upsert(fichaRecords, {
+        onConflict: "fecha,class_id",
+        count: "exact",
+      });
+    if (error) {
+      errors.push(`ficha snapshot: ${error.message}`);
+    } else {
+      fichasUpserted = count ?? fichaRecords.length;
+    }
+  }
+
   return new Response(
     JSON.stringify({
+      fund: FUND_ID,
+      classes: [...allowedNames],
+      tipoRentaId,
       datesRequested: dates.length,
       datesWithData,
       datesEmpty,
       totalRows,
       totalUpserted,
+      fichasUpserted,
       ...(errors.length ? { errors } : {}),
     }),
     { headers: { "Content-Type": "application/json" } },

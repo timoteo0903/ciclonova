@@ -1,12 +1,12 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getDashboardClassesData } from "@/lib/cafci";
+import { getDashboardClassesDataCached } from "@/lib/cafci";
 
 export const dynamic = "force-dynamic";
 
 export async function GET(req: NextRequest) {
   try {
     const days = req.nextUrl.searchParams.get("days") ?? "180";
-    const data = await getDashboardClassesData(days);
+    const data = await getDashboardClassesDataCached(days);
     return NextResponse.json({ success: true, data });
   } catch (error) {
     const message = error instanceof Error ? error.message : "Error inesperado";
