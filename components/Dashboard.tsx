@@ -79,6 +79,12 @@ export default function Dashboard() {
   const classAVcpSeries = classAPoints.map((p) => p.vcp);
   const totalAumSeries = totalAumPoints.map((p) => p.aumTotal);
 
+  // Rendimiento acumulado desde el primer punto visible: (vcp / vcp[0] - 1) * 100
+  const firstVcp = classAPoints.find((p) => p.vcp !== null)?.vcp ?? null;
+  const returnSeries = classAPoints.map((p) =>
+    firstVcp && p.vcp !== null ? Number(((p.vcp / firstVcp - 1) * 100).toFixed(4)) : null,
+  );
+
   const classARangeLabel = classA ? buildRangeLabel(classA) : "";
   const totalAumRangeLabel = combinedAum
     ? `${toShortDate(combinedAum.window.startDate)} - ${toShortDate(combinedAum.window.endDate)} · ${combinedAum.window.points} observaciones`
@@ -189,6 +195,15 @@ export default function Dashboard() {
               data={classAVcpSeries}
               color="#5f2bd7"
               seriesLabel="VCP"
+            />
+            <LineChartPanel
+              title="Rendimiento acumulado"
+              rangeLabel={classARangeLabel}
+              labels={classALabels}
+              data={returnSeries}
+              color="#e07b00"
+              seriesLabel="Rendimiento %"
+              pct
             />
             <LineChartPanel
               title="Evolucion AUM Total (Clase A + Clase B)"

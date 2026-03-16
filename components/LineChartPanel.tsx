@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback } from "react";
+import { useCallback, useMemo } from "react";
 import { Line } from "react-chartjs-2";
 import type { Chart as ChartJSType, Plugin, TooltipItem, TooltipModel } from "chart.js";
 import {
@@ -49,6 +49,7 @@ interface LineChartPanelProps {
   color: string;
   seriesLabel: string;
   currency?: boolean;
+  pct?: boolean;
   className?: string;
 }
 
@@ -60,9 +61,69 @@ export default function LineChartPanel({
   color,
   seriesLabel,
   currency = false,
+  pct = false,
   className,
 }: LineChartPanelProps) {
-  // External tooltip — attached to the chart-canvas-wrap (position: relative)
+
+  // ── ATH (solo para gráficos de rendimiento %) ────────────────────────────
+  const athIndex = useMemo(() => {
+    if (!pct) return -1;
+    let best = -1;
+    for (let i = 0; i < data.length; i++) {
+      if (data[i] === null) continue;
+      if (best === -1 || (data[i] as number) > (data[best] as number)) best = i;
+    }
+    return best;
+  }, [data, pct]);
+
+  const athValue = athIndex >= 0 ? (data[athIndex] as number) : null;
+  const athLabel = labels[athIndex] ?? "";
+
+  // Plugin que dibuja la línea horizontal y el badge "ATH"
+  const athPlugin = useMemo((): Plugin<"line"> => ({
+    id: "athLine",
+    afterDraw(chart) {
+      if (athValue === null) return;
+      const ctx = chart.ctx;
+      const yScale = chart.scales.y;
+      const { left, right, top } = chart.chartArea;
+      const y = yScale.getPixelForValue(athValue);
+
+      // Línea punteada horizontal
+      ctx.save();
+      ctx.beginPath();
+      ctx.moveTo(left, y);
+      ctx.lineTo(right, y);
+      ctx.strokeStyle = "rgba(220, 140, 0, 0.55)";
+      ctx.lineWidth = 1.5;
+      ctx.setLineDash([5, 4]);
+      ctx.stroke();
+
+      // Badge "ATH"
+      const badgeText = `ATH  ${fmtNumber2.format(athValue)} %`;
+      const badgePad = 6;
+      ctx.font = "bold 11px system-ui, sans-serif";
+      const textW = ctx.measureText(badgeText).width;
+      const bx = right - textW - badgePad * 2 - 4;
+      const by = Math.max(top + 4, y - 22);
+      const bh = 20;
+
+      ctx.fillStyle = "rgba(220, 140, 0, 0.12)";
+      ctx.strokeStyle = "rgba(220, 140, 0, 0.6)";
+      ctx.lineWidth = 1;
+      ctx.setLineDash([]);
+      ctx.beginPath();
+      ctx.roundRect(bx, by, textW + badgePad * 2, bh, 4);
+      ctx.fill();
+      ctx.stroke();
+
+      ctx.fillStyle = "#b86a00";
+      ctx.fillText(badgeText, bx + badgePad, by + 13);
+      ctx.restore();
+    },
+  }), [athValue]);
+
+  // ── Tooltip externo ───────────────────────────────────────────────────────
   const externalTooltip = useCallback(
     (context: { chart: ChartJSType; tooltip: TooltipModel<"line"> }) => {
       const { chart, tooltip } = context;
@@ -91,6 +152,16 @@ export default function LineChartPanel({
     [currency], // eslint-disable-line react-hooks/exhaustive-deps
   );
 
+  // ── Dataset ───────────────────────────────────────────────────────────────
+  const pointRadii = useMemo(
+    () => data.map((_, i) => (i === athIndex ? 6 : 0)),
+    [data, athIndex],
+  );
+  const pointColors = useMemo(
+    () => data.map((_, i) => (i === athIndex ? "#e07b00" : "transparent")),
+    [data, athIndex],
+  );
+
   const chartData = {
     labels,
     datasets: [
@@ -100,7 +171,8 @@ export default function LineChartPanel({
         borderColor: color,
         backgroundColor: `${color}18`,
         borderWidth: 2,
-        pointRadius: 0,
+        pointRadius: pct ? pointRadii : 0,
+        pointBackgroundColor: pct ? pointColors : color,
         pointHoverRadius: 5,
         pointHoverBackgroundColor: color,
         pointHoverBorderColor: "#ffffff",
@@ -125,7 +197,9 @@ export default function LineChartPanel({
           label(context: TooltipItem<"line">) {
             const y = context.parsed.y;
             if (y == null) return "Sin dato";
-            return currency ? fmtCurrencyArs.format(y) : fmtNumber4.format(y);
+            if (currency) return fmtCurrencyArs.format(y);
+            if (pct) return `${fmtNumber2.format(y)} %`;
+            return fmtNumber4.format(y);
           },
         },
       },
@@ -147,12 +221,17 @@ export default function LineChartPanel({
           font: { size: 11 },
           callback(value: number | string) {
             const num = Number(value);
-            return currency ? fmtNumber2.format(num) : fmtNumber4.format(num);
+            if (currency) return fmtNumber2.format(num);
+            if (pct) return `${fmtNumber2.format(num)} %`;
+            return fmtNumber4.format(num);
           },
         },
       },
     },
   };
+
+  const plugins: Plugin<"line">[] = [crosshairPlugin];
+  if (pct && athValue !== null) plugins.push(athPlugin);
 
   return (
     <article className={className ? `panel ${className}` : "panel"}>
@@ -160,8 +239,14 @@ export default function LineChartPanel({
         <h2>{title}</h2>
         <p className="muted panel-sub">{rangeLabel}</p>
       </div>
+      {pct && athValue !== null && (
+        <p className="muted" style={{ fontSize: 11, marginBottom: 6 }}>
+          ATH: <strong style={{ color: "#b86a00" }}>{fmtNumber2.format(athValue)} %</strong>
+          {" "}· {athLabel}
+        </p>
+      )}
       <div className="chart-canvas-wrap">
-        <Line data={chartData} options={options} plugins={[crosshairPlugin]} />
+        <Line data={chartData} options={options} plugins={plugins} />
       </div>
     </article>
   );
