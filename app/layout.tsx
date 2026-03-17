@@ -15,8 +15,8 @@ const ibmPlexSans = IBM_Plex_Sans({
 });
 
 export const metadata: Metadata = {
-  title: "Ciclo Nova | Dashboard FCI",
-  description: "Dashboard de evolución del Fondo Común de Inversión Ciclo Nova.",
+  title: "Fondos Comunes de Inversión IEB S.A.",
+  description: "Dashboard de evolución de los Fondos Comunes de Inversión IEB S.A.",
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
