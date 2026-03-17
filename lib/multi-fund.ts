@@ -389,7 +389,7 @@ export async function backfillAllFundsRange(
   });
 
   // 3. Agrupar clases por tipoRentaId
-  const byTipoRenta = new Map<number, ClassMeta & { classId: number }[]>();
+  const byTipoRenta = new Map<number, Array<ClassMeta & { classId: number }>>();
   for (const [classId, meta] of classMeta.entries()) {
     if (!byTipoRenta.has(meta.tipoRentaId)) byTipoRenta.set(meta.tipoRentaId, []);
     byTipoRenta.get(meta.tipoRentaId)!.push({ ...meta, classId });
