@@ -428,7 +428,7 @@ export default function Dashboard() {
         <>
           <section className="kpi-grid fade-in stagger-1">
             <KpiCard
-              label={`AUM Total · ${activeClasses.length} clase${activeClasses.length !== 1 ? "s" : ""}`}
+              label={`AUM Total`}
               value={formatCurrency(totalAum)}
               sub="Patrimonio bajo administración"
             />
