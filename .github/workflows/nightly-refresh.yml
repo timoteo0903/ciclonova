@@ -1,0 +1,18 @@
+name: Nightly Refresh — IEB Fondos
+
+on:
+  schedule:
+    # Corre a las 21:00 ART (00:00 UTC) de lunes a viernes
+    - cron: "0 0 * * 1-5"
+  workflow_dispatch:   # También se puede disparar manualmente desde GitHub
+
+jobs:
+  refresh:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Refresh all funds today
+        run: |
+          curl -s -X POST "${{ secrets.DASHBOARD_URL }}/api/fondos/refresh-all" \
+            -H "x-refresh-secret: ${{ secrets.REFRESH_SECRET }}" \
+            -H "Content-Type: application/json" \
+            | jq .

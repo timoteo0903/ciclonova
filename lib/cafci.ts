@@ -63,7 +63,7 @@ function cacheSet<T>(key: string, value: T, ttlMs: number): T {
   return value;
 }
 
-async function getCached<T>(key: string, ttlMs: number, producer: () => Promise<T>): Promise<T> {
+export async function getCached<T>(key: string, ttlMs: number, producer: () => Promise<T>): Promise<T> {
   const fromCache = cacheGet<T>(key);
   if (fromCache !== null) return fromCache;
 
@@ -93,7 +93,7 @@ async function getCached<T>(key: string, ttlMs: number, producer: () => Promise<
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
-function toNumber(value: unknown): number | null {
+export function toNumber(value: unknown): number | null {
   if (value === null || value === undefined || value === "") return null;
   if (typeof value === "number") return Number.isFinite(value) ? value : null;
   const raw = String(value).trim();
@@ -110,7 +110,7 @@ function toNumber(value: unknown): number | null {
   return Number.isFinite(num) ? num : null;
 }
 
-function parseCafciDate(input: unknown): Date | null {
+export function parseCafciDate(input: unknown): Date | null {
   if (!input) return null;
   const parts = String(input).split("/");
   if (parts.length !== 3) return null;
@@ -123,17 +123,17 @@ function parseCafciDate(input: unknown): Date | null {
   return Number.isNaN(date.getTime()) ? null : date;
 }
 
-function toISODate(date: Date): string {
+export function toISODate(date: Date): string {
   return date.toISOString().slice(0, 10);
 }
 
-function addDays(date: Date, days: number): Date {
+export function addDays(date: Date, days: number): Date {
   const next = new Date(date.getTime());
   next.setUTCDate(next.getUTCDate() + days);
   return next;
 }
 
-function normalizeText(input: unknown): string {
+export function normalizeText(input: unknown): string {
   return String(input || "")
     .normalize("NFD")
     .replace(/[\u0300-\u036f]/g, "")
@@ -144,7 +144,7 @@ function normalizeText(input: unknown): string {
 
 // ─── CAFCI fetch ──────────────────────────────────────────────────────────────
 
-async function fetchJson(url: string, timeoutMs = 20000): Promise<unknown> {
+export async function fetchJson(url: string, timeoutMs = 20000): Promise<unknown> {
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), timeoutMs);
   try {
@@ -345,7 +345,7 @@ export function buildOverviewFromFicha(ficha: any, classId: number): Overview {
 
 // ─── Daily data — shared raw cache (one API call per date regardless of class) ─
 
-async function getDailyRawRows(tipoRentaId: number, dateIso: string): Promise<unknown[]> {
+export async function getDailyRawRows(tipoRentaId: number, dateIso: string): Promise<unknown[]> {
   return getCached(`daily-raw:${tipoRentaId}:${dateIso}`, 10 * 365 * 24 * 60 * 60 * 1000, async () => {
     const url = `${API_BASE}/estadisticas/informacion/diaria/${tipoRentaId}/${dateIso}`;
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -355,7 +355,7 @@ async function getDailyRawRows(tipoRentaId: number, dateIso: string): Promise<un
 }
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-function normalizeDailyRow(row: any, fallbackDateIso: string): EvolutionPoint {
+export function normalizeDailyRow(row: any, fallbackDateIso: string): EvolutionPoint {
   const parsed = parseCafciDate(row.fecha);
   return {
     date: parsed ? toISODate(parsed) : fallbackDateIso,
@@ -365,7 +365,7 @@ function normalizeDailyRow(row: any, fallbackDateIso: string): EvolutionPoint {
   };
 }
 
-function findClassRow(rows: unknown[], className: string, dateIso: string): EvolutionPoint | null {
+export function findClassRow(rows: unknown[], className: string, dateIso: string): EvolutionPoint | null {
   if (!rows.length) return null;
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const r = rows as any[];
@@ -387,7 +387,7 @@ async function getDailyRowForClass(
 
 // ─── Evolution ────────────────────────────────────────────────────────────────
 
-async function mapWithConcurrency<T, R>(
+export async function mapWithConcurrency<T, R>(
   items: T[],
   limit: number,
   workerFn: (item: T, idx: number) => Promise<R>,
@@ -408,7 +408,7 @@ async function mapWithConcurrency<T, R>(
   return output;
 }
 
-function computeEvolutionStats(points: EvolutionPoint[]): EvolutionStats {
+export function computeEvolutionStats(points: EvolutionPoint[]): EvolutionStats {
   if (points.length < 2) {
     return { points: points.length, sinceInceptionReturnPct: null, aumChangePct: null, maxDrawdownPct: null, annualizedVolatilityPct30d: null };
   }
@@ -444,7 +444,7 @@ function computeEvolutionStats(points: EvolutionPoint[]): EvolutionStats {
   return { points: points.length, sinceInceptionReturnPct, aumChangePct, maxDrawdownPct, annualizedVolatilityPct30d };
 }
 
-function buildDateRange(daysParam: string, currentDate: Date, inceptionDate: Date) {
+export function buildDateRange(daysParam: string, currentDate: Date, inceptionDate: Date) {
   const normalized = String(daysParam || "180").toLowerCase();
   const isAll = normalized === "all";
   let days = Number(normalized);

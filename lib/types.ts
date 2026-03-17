@@ -123,3 +123,38 @@ export interface DashboardClassesData {
   classB: DashboardData;
   combinedAum: CombinedAum;
 }
+
+// ─── Multi-fund types ──────────────────────────────────────────────────────────
+
+export interface MultiFundClassData {
+  classId: number;
+  className: string; // "Clase A", "Clase B", etc.
+  overview: Overview;
+  evolution: Evolution;
+  inceptionStats: EvolutionStats | null;
+  inceptionStartDate: string | null; // primer fecha disponible en BD (puede diferir de la fecha real de creación del fondo)
+}
+
+export interface MultiFundDashboard {
+  fundId: number;
+  fundName: string;
+  classes: MultiFundClassData[];
+  totalAumNow: number | null;
+  aumHistoryPoints: { date: string; aumTotal: number | null }[];
+}
+
+export interface BenchmarkSeries {
+  fundId: number;
+  fundName: string;
+  classId: number;
+  className: string;
+  color: string;
+  points: { date: string; returnPct: number | null }[];
+  inceptionReturnPct: number | null;
+}
+
+export interface BenchmarkData {
+  series: BenchmarkSeries[];
+  startDate: string;
+  endDate: string;
+}
