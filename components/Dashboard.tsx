@@ -244,11 +244,13 @@ export default function Dashboard() {
   // AUM por clase activa (para breakdown)
   const aumByClass = useMemo(
     () =>
-      activeClasses.map((c) => ({
-        classId: c.classId,
-        className: c.className,
-        aum: c.overview.current.aum,
-      })),
+      activeClasses
+        .filter((c) => c.overview.current.aum != null && c.overview.current.aum > 0)
+        .map((c) => ({
+          classId: c.classId,
+          className: c.className,
+          aum: c.overview.current.aum,
+        })),
     [activeClasses],
   );
 
