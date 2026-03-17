@@ -19,7 +19,11 @@ export async function GET(request: NextRequest) {
 
   try {
     const data = await getBenchmarkData(fundIds, days);
-    return NextResponse.json({ success: true, data });
+    return NextResponse.json({ success: true, data }, {
+      headers: {
+        "Cache-Control": "public, s-maxage=300, stale-while-revalidate=600",
+      },
+    });
   } catch (err) {
     return NextResponse.json(
       { error: err instanceof Error ? err.message : "Error al armar benchmark" },

@@ -163,7 +163,7 @@ export async function fetchJson(url: string, timeoutMs = 20000): Promise<unknown
 // ─── Supabase readers ─────────────────────────────────────────────────────────
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-async function getFichaFromDb(classId: number): Promise<any | null> {
+export async function getFichaFromDb(classId: number): Promise<any | null> {
   if (!supabase) return null;
   const { data, error } = await supabase
     .from("cafci_ficha_snapshot")

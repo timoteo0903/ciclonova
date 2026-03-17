@@ -21,6 +21,7 @@ import {
   buildDateRange,
   getDailyRawRows,
   findClassRow,
+  getFichaFromDb,
 } from "./cafci";
 import { supabase } from "./supabase";
 import { ALL_FUNDS, FUND_BY_ID, CLASS_BY_ID } from "./funds-config";
@@ -43,7 +44,12 @@ export function getBenchmarkColor(index: number): string {
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 export async function getFundFichaRaw(fundId: number, classId: number): Promise<any> {
-  return getCached(`ficha:${fundId}:${classId}`, 5 * 60 * 1000, async () => {
+  return getCached(`ficha:${fundId}:${classId}`, 30 * 60 * 1000, async () => {
+    // 1. Intentar desde Supabase (snapshot diario, mucho más rápido que CAFCI)
+    const fromDb = await getFichaFromDb(classId);
+    if (fromDb?.model) return fromDb;
+
+    // 2. Fallback a la API de CAFCI
     const url = `${API_BASE}/fondo/${fundId}/clase/${classId}/ficha`;
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const response = await fetchJson(url) as any;
@@ -592,4 +598,61 @@ export async function refreshAllFundsToday(): Promise<{
   });
 
   return { synced, failed, details };
+}
+
+// ─── Snapshot de ficha (Clase A) para todos los fondos ───────────────────────
+
+/**
+ * Descarga la ficha de la Clase A (o primera clase disponible) de cada fondo
+ * y la guarda en cafci_ficha_snapshot con la fecha de hoy.
+ * Sirve para que el dashboard nunca tenga que llamar a CAFCI en tiempo real.
+ */
+export async function refreshAllFichaSnapshots(): Promise<{
+  ok: number;
+  failed: number;
+  details: { fundName: string; classId: number; ok: boolean; error?: string }[];
+}> {
+  if (!supabase) throw new Error("Supabase no configurado.");
+
+  // Una clase por fondo: Clase A o la primera disponible
+  const targets = ALL_FUNDS.map((f) => ({
+    fundId: f.fundId,
+    fundName: f.fundName,
+    cls: f.classes[0],
+  }));
+
+  const today = new Date().toISOString().slice(0, 10);
+  let ok = 0;
+  let failed = 0;
+  const details: { fundName: string; classId: number; ok: boolean; error?: string }[] = [];
+
+  await mapWithConcurrency(targets, 4, async ({ fundId, fundName, cls }) => {
+    try {
+      const url = `${API_BASE}/fondo/${fundId}/clase/${cls.classId}/ficha`;
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const response = await fetchJson(url) as any;
+      if (response.error || !response.data?.model) {
+        throw new Error(response.error ?? "respuesta inválida");
+      }
+      const { error } = await supabase!
+        .from("cafci_ficha_snapshot")
+        .upsert(
+          { fecha: today, class_id: cls.classId, data: response.data },
+          { onConflict: "fecha,class_id" },
+        );
+      if (error) throw new Error(error.message);
+      ok++;
+      details.push({ fundName, classId: cls.classId, ok: true });
+    } catch (err) {
+      failed++;
+      details.push({
+        fundName,
+        classId: cls.classId,
+        ok: false,
+        error: err instanceof Error ? err.message : "error desconocido",
+      });
+    }
+  });
+
+  return { ok, failed, details };
 }

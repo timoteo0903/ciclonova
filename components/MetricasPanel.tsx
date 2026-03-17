@@ -1,7 +1,10 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import dynamic from "next/dynamic";
 import { toShortDate } from "@/lib/formatters";
+
+const MetricasDashboard = dynamic(() => import("./MetricasDashboard"), { ssr: false });
 
 type MetricaPeriod = 30 | 60 | 90;
 
@@ -50,7 +53,10 @@ function fmtVcp(val: number | null): string {
 
 const RANK_COLOR = ["#b8870b", "#6b7280", "#9f5325"];
 
+type MetricasTab = "dashboard" | "rankings";
+
 export default function MetricasPanel() {
+  const [tab, setTab] = useState<MetricasTab>("dashboard");
   const [period, setPeriod] = useState<MetricaPeriod>(30);
   const [data, setData] = useState<MetricaFondo[]>([]);
   const [loading, setLoading] = useState(false);
@@ -100,69 +106,69 @@ export default function MetricasPanel() {
 
   return (
     <div className="metricas-panel fade-in">
-      {/* Header */}
+      {/* Header — solo título + tabs */}
       <div className="metricas-header">
-        <div>
-          <h2 style={{ marginBottom: 4 }}>Métricas comparativas</h2>
-          <p className="muted" style={{ margin: 0, fontSize: 14 }}>
-            Comparación de fondos IEB para el período seleccionado
-            {dateRef?.dateInicio && dateRef?.dateFin && (
-              <> · <strong>{toShortDate(dateRef.dateInicio)} → {toShortDate(dateRef.dateFin)}</strong></>
-            )}
-          </p>
-        </div>
-        <div className="range-selector">
-          {PERIODS.map((p) => (
-            <button
-              key={p.value}
-              className={`range-btn${period === p.value ? " active" : ""}`}
-              onClick={() => setPeriod(p.value)}
-            >
-              {p.label}
-            </button>
-          ))}
+        <h2 style={{ margin: 0 }}>Métricas</h2>
+        <div className="metricas-tabs">
+          <button
+            className={`metricas-tab${tab === "dashboard" ? " metricas-tab--active" : ""}`}
+            onClick={() => setTab("dashboard")}
+          >
+            Dashboard
+          </button>
+          <button
+            className={`metricas-tab${tab === "rankings" ? " metricas-tab--active" : ""}`}
+            onClick={() => setTab("rankings")}
+          >
+            Rankings
+          </button>
         </div>
       </div>
 
-      {loading && (
-        <div className="metricas-loading">
-          <div className="metricas-spinner" />
-          <span>Cargando métricas...</span>
-        </div>
-      )}
-      {error && (
-        <p className="status status--error" style={{ marginTop: 16 }}>
-          Error: {error}
-        </p>
-      )}
+      {/* ── Dashboard tab ── */}
+      {tab === "dashboard" && <MetricasDashboard />}
 
-      {!loading && !error && data.length > 0 && (
-        <div className="metricas-grid">
-          <ReturnTable
-            currency="ARS"
-            rows={topReturnArs}
-            period={period}
-            rankColors={RANK_COLOR}
-          />
-          <ReturnTable
-            currency="USD"
-            rows={topReturnUsd}
-            period={period}
-            rankColors={RANK_COLOR}
-          />
-          <AumTable
-            currency="ARS"
-            rows={topAumArs}
-            period={period}
-            rankColors={RANK_COLOR}
-          />
-          <AumTable
-            currency="USD"
-            rows={topAumUsd}
-            period={period}
-            rankColors={RANK_COLOR}
-          />
-        </div>
+      {/* ── Rankings tab ── */}
+      {tab === "rankings" && (
+        <>
+          {/* Controles del período dentro del tab */}
+          <div className="metricas-rankings-bar">
+            <p className="muted" style={{ margin: 0, fontSize: 13 }}>
+              {dateRef?.dateInicio && dateRef?.dateFin
+                ? <>{toShortDate(dateRef.dateInicio)} → {toShortDate(dateRef.dateFin)}</>
+                : "Seleccioná un período"}
+            </p>
+            <div className="range-selector">
+              {PERIODS.map((p) => (
+                <button
+                  key={p.value}
+                  className={`range-btn${period === p.value ? " active" : ""}`}
+                  onClick={() => setPeriod(p.value)}
+                >
+                  {p.label}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {loading && (
+            <div className="metricas-loading">
+              <div className="metricas-spinner" />
+              <span>Cargando rankings...</span>
+            </div>
+          )}
+          {error && (
+            <p className="status status--error" style={{ marginTop: 16 }}>Error: {error}</p>
+          )}
+          {!loading && !error && data.length > 0 && (
+            <div className="metricas-grid">
+              <ReturnTable currency="ARS" rows={topReturnArs} period={period} rankColors={RANK_COLOR} />
+              <ReturnTable currency="USD" rows={topReturnUsd} period={period} rankColors={RANK_COLOR} />
+              <AumTable currency="ARS" rows={topAumArs} period={period} rankColors={RANK_COLOR} />
+              <AumTable currency="USD" rows={topAumUsd} period={period} rankColors={RANK_COLOR} />
+            </div>
+          )}
+        </>
       )}
     </div>
   );

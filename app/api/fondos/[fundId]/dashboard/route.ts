@@ -18,7 +18,12 @@ export async function GET(
 
   try {
     const data = await getMultiFundDashboard(fundId, days);
-    return NextResponse.json({ success: true, data });
+    return NextResponse.json({ success: true, data }, {
+      headers: {
+        // Caché en browser/CDN: sirve el dato por 5 min, acepta hasta 10 min stale mientras revalida en background
+        "Cache-Control": "public, s-maxage=300, stale-while-revalidate=600",
+      },
+    });
   } catch (err) {
     return NextResponse.json(
       { error: err instanceof Error ? err.message : "Error al consultar el fondo" },

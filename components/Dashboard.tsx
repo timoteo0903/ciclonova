@@ -19,6 +19,11 @@ import { ALL_FUNDS } from "@/lib/funds-config";
 const LineChartPanel = dynamic(() => import("./LineChartPanel"), { ssr: false });
 const BenchmarkPanel = dynamic(() => import("./BenchmarkPanel"), { ssr: false });
 
+// Caché client-side a nivel módulo: sobrevive re-renders y navegaciones dentro de la app
+const TTL_MS = 5 * 60 * 1000; // 5 minutos
+const dashboardCache = new Map<string, { data: MultiFundDashboard; expiresAt: number }>();
+const benchmarkCache = new Map<string, { data: BenchmarkData; expiresAt: number }>();
+
 type Range = "30" | "90" | "180" | "all";
 type StatusType = "loading" | "ok" | "error";
 type PageType = "Evolucion" | "Composicion" | "Benchmark" | "Métricas";
@@ -73,6 +78,13 @@ export default function Dashboard() {
   }, []);
 
   const loadDashboard = useCallback(async (fundId: number, r: Range) => {
+    const cacheKey = `${fundId}:${r}`;
+    const cached = dashboardCache.get(cacheKey);
+    if (cached && Date.now() < cached.expiresAt) {
+      setData(cached.data);
+      setStatus({ type: "ok", text: `Actualizado (${new Date(cached.expiresAt - TTL_MS).toLocaleString("es-AR")}).` });
+      return;
+    }
     setStatus({ type: "loading", text: "Cargando datos del fondo..." });
     try {
       const res = await fetch(`/api/fondos/${fundId}/dashboard?days=${encodeURIComponent(r)}`);
@@ -80,7 +92,9 @@ export default function Dashboard() {
       if (!res.ok || !payload.success || !payload.data) {
         throw new Error(payload.error ?? "No se pudo cargar el fondo.");
       }
-      setData(payload.data as MultiFundDashboard);
+      const dashData = payload.data as MultiFundDashboard;
+      dashboardCache.set(cacheKey, { data: dashData, expiresAt: Date.now() + TTL_MS });
+      setData(dashData);
       setStatus({ type: "ok", text: `Actualizado (${new Date().toLocaleString("es-AR")}).` });
     } catch (e) {
       setStatus({
@@ -92,6 +106,13 @@ export default function Dashboard() {
 
   const loadBenchmark = useCallback(async (fundIds: number[], r: Range) => {
     if (fundIds.length === 0) return;
+    const cacheKey = `${fundIds.join(",")}:${r}`;
+    const cached = benchmarkCache.get(cacheKey);
+    if (cached && Date.now() < cached.expiresAt) {
+      setBenchmarkData(cached.data);
+      setBenchmarkStatus("ok");
+      return;
+    }
     setBenchmarkStatus("loading");
     try {
       const res = await fetch(
@@ -99,7 +120,9 @@ export default function Dashboard() {
       );
       const payload = await res.json();
       if (!res.ok || !payload.success) throw new Error(payload.error ?? "Error en benchmark");
-      setBenchmarkData(payload.data as BenchmarkData);
+      const bmData = payload.data as BenchmarkData;
+      benchmarkCache.set(cacheKey, { data: bmData, expiresAt: Date.now() + TTL_MS });
+      setBenchmarkData(bmData);
       setBenchmarkStatus("ok");
     } catch {
       setBenchmarkStatus("error");

@@ -184,7 +184,7 @@ export const ALL_FUNDS: FundConfig[] = [
     fundId: 1445,
     fundName: "FCIC Inmobiliario Puerto Nizuc",
     originalName: "FCIC Inmobiliario Puerto Nizuc",
-    moneda: "USD",
+    moneda: "ARS",
     classes: [
       { fundId: 1445, classId: 4247, fundName: "FCIC Inmobiliario Puerto Nizuc", className: "Clase A" },
     ],

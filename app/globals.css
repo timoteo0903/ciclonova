@@ -1126,6 +1126,143 @@ h2 {
   gap: 16px;
 }
 
+/* ── Métricas tabs ── */
+
+.metricas-tabs {
+  display: flex;
+  gap: 4px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  padding: 4px;
+}
+
+.metricas-tab {
+  border: none;
+  background: transparent;
+  color: var(--ink-soft);
+  font-family: var(--font-ibm), "IBM Plex Sans", sans-serif;
+  font-size: 13px;
+  font-weight: 600;
+  border-radius: 999px;
+  padding: 7px 18px;
+  cursor: pointer;
+  transition: all 0.18s ease;
+  white-space: nowrap;
+}
+
+.metricas-tab:hover {
+  color: var(--navy);
+}
+
+.metricas-tab--active {
+  background: linear-gradient(120deg, var(--violet), var(--blue));
+  color: #ffffff !important;
+  box-shadow: 0 4px 12px rgba(95, 43, 215, 0.22);
+}
+
+/* ── Rankings bar (período + fecha) ── */
+
+.metricas-rankings-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+  padding: 12px 0 4px;
+  border-top: 1px solid var(--border);
+}
+
+/* ── md-kpis (KPI bar encima del grid) ── */
+
+.md-kpis {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 12px;
+  margin-bottom: 16px;
+}
+
+.md-kpi {
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 16px 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.md-kpi-label {
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  opacity: 0.55;
+}
+
+.md-kpi-value {
+  font-size: 22px;
+  font-weight: 700;
+  line-height: 1.1;
+  color: #5f2bd7;
+}
+
+.md-kpi-value--ars { color: #5f2bd7; }
+.md-kpi-value--usd { color: #e07b00; }
+
+.md-kpi-sub {
+  font-size: 10px;
+  opacity: 0.45;
+  margin-top: 2px;
+}
+
+/* ── md-grid (métricas dashboard) ── */
+
+.md-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 16px;
+}
+
+.md-card--full {
+  grid-column: 1 / -1;
+}
+
+/* ── FCIC mención honorífica ── */
+
+.md-fcic-mention {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 20px;
+  background: linear-gradient(90deg, rgba(95,43,215,0.04), transparent);
+  border-top: 1px solid var(--border);
+  font-size: 12px;
+  color: var(--ink-soft);
+}
+
+.md-fcic-star {
+  color: #b8870b;
+  font-size: 14px;
+  flex-shrink: 0;
+}
+
+.md-fcic-aum {
+  font-weight: 700;
+  color: var(--navy);
+}
+
+.md-fcic-note {
+  font-style: italic;
+  opacity: 0.7;
+}
+
+@media (max-width: 700px) {
+  .md-kpis { grid-template-columns: 1fr; }
+  .md-grid { grid-template-columns: 1fr; }
+  .md-card--full { grid-column: 1; }
+}
+
 /* ── mc-card (métricas card) ── */
 
 .mc-card {
